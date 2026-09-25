@@ -34,6 +34,53 @@
       <ul id="conflictList" class="conflict-list"></ul>
     </section>
 
+    <section class="panel" id="fragmentPanel">
+      <h2>✂️ 片段排练单（按原演出时间窗截取）</h2>
+      <p class="hint">
+        输入原演出时间窗 <strong>[起, 止)</strong>（左闭右开，秒），可在页面预览片段时间轴与通道冲突，并下载一份
+        <strong>独立可用</strong>的 JSON 提示单（时间已平移到从 0 开始）。原提示单不会被修改。
+        前置未入选或提示跨左边界时，该提示会改为<strong>固定开始</strong>，保证下载文件无悬空引用。
+      </p>
+      <form id="fragmentForm" class="frag-form">
+        <div class="frag-inputs">
+          <label>窗口起点（秒，含）
+            <input type="number" id="fr-start" min="0" step="0.1" value="30" required />
+          </label>
+          <label>窗口止点（秒，不含）
+            <input type="number" id="fr-end" min="0" step="0.1" value="70" required />
+          </label>
+          <div class="frag-actions">
+            <button type="submit" class="btn primary" id="frPreviewBtn">生成预览</button>
+            <button type="button" class="btn" id="frDownloadBtn" disabled>下载片段 JSON</button>
+          </div>
+        </div>
+      </form>
+      <div id="fragError" class="banner err hidden"></div>
+      <div id="fragResult" class="frag-result" hidden>
+        <div class="frag-meta" id="fragMeta"></div>
+
+        <h3 class="frag-h3">片段时间轴（时间已平移到 0）</h3>
+        <div id="fragTimeline"></div>
+
+        <section class="frag-subpanel" id="fragConflictPanel" hidden>
+          <h3 class="frag-h3">⚠️ 片段通道冲突（左闭右开）</h3>
+          <ul id="fragConflictList" class="conflict-list"></ul>
+        </section>
+
+        <h3 class="frag-h3">片段提示列表</h3>
+        <div class="table-wrap">
+          <table id="fragTable">
+            <thead>
+              <tr>
+                <th>#</th><th>名称</th><th>独占通道</th><th>持续(s)</th><th>开始方式</th><th>开始(s)</th><th>结束(s)</th><th>原区间(s)</th><th>说明</th>
+              </tr>
+            </thead>
+            <tbody id="fragTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section class="panel">
       <h2 id="formTitle">➕ 新增提示</h2>
       <form id="cueForm" class="cue-form">

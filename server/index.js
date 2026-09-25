@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { JsonStore } = require('./store');
 const { evaluate, validateCueBody } = require('./scheduler');
+const { buildFragment } = require('./fragment');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, '..', 'data', 'cues.json');
@@ -116,6 +117,37 @@ app.delete('/api/cues/:id', (req, res) => {
   // 删除后全部后继（链路上的相对提示）时间会随下次 evaluate 自动重算
   store.persist();
   res.json({ ok: true, removedId: removed.id, ...snapshot() });
+});
+
+// ---- 片段排练单（只读，不修改原提示单）----
+
+function fragmentParams(req) {
+  // GET /api/fragments/download 用 query，POST /api/fragments/preview 用 JSON body
+  const src = req.method === 'GET' ? req.query : req.body || {};
+  return buildFragment(store.cues, src.start, src.end);
+}
+
+app.post('/api/fragments/preview', (req, res) => {
+  try {
+    res.json(fragmentParams(req));
+  } catch (e) {
+    return fail(res, e.status || 400, e.message, { errors: e.errors || [e.message] });
+  }
+});
+
+app.get('/api/fragments/download', (req, res) => {
+  let result;
+  try {
+    result = fragmentParams(req);
+  } catch (e) {
+    return fail(res, e.status || 400, e.message, { errors: e.errors || [e.message] });
+  }
+  const { start, end } = result.window;
+  const fmt = (n) => String(n).replace(/\./g, '-');
+  const filename = `cue-fragment_${fmt(start)}-${fmt(end)}.json`;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.send(JSON.stringify(result.document, null, 2) + '\n');
 });
 
 app.use((err, req, res, next) => {

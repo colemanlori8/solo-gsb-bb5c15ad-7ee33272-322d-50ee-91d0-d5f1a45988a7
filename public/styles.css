@@ -224,3 +224,31 @@ tr.row-error { background: rgba(107,102,128,.12); }
 @media (max-width: 760px) {
   .cue-form .grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- 片段排练单 ---------- */
+.frag-form { margin: 12px 0; }
+.frag-inputs {
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+}
+.frag-inputs label { min-width: 190px; flex: 1; }
+.frag-actions { display: flex; gap: 10px; }
+.frag-actions .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+#fragError { margin: 10px 0 0; }
+.frag-result { margin-top: 16px; }
+.frag-meta {
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  border: 1px solid #2f6b4d;
+  background: #1d2e25;
+  color: #88ddaa;
+}
+.frag-meta.stale {
+  border-color: var(--accent);
+  background: #332a18;
+  color: var(--accent);
+}
+.frag-h3 { font-size: 14px; margin: 16px 0 8px; color: var(--text); }
+.frag-subpanel h3.frag-h3 { margin-top: 4px; }
