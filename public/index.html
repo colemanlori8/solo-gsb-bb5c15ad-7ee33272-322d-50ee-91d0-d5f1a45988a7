@@ -35,6 +35,54 @@
     </section>
 
     <section class="panel">
+      <h2>✂️ 片段排练单（原提示单不变）</h2>
+      <p class="hint" style="margin-bottom:12px">
+        输入原演出时间窗 <strong>[起, 止)</strong>（左闭右开、需为正长度），服务端按重算后的时间选出与窗口有正长度交集的提示，
+        截到窗口并整体平移到 0。前置未入选或提示跨左边界时会自动改为固定开始，保证下载的 JSON 无悬空引用、可作为独立提示单使用。
+      </p>
+      <form id="rehearsalForm" class="cue-form">
+        <div class="start-detail" style="margin-bottom:12px">
+          <label>窗口起
+            <input type="number" id="rh-start" min="0" step="0.1" value="30" /> 秒
+          </label>
+          <label>窗口止
+            <input type="number" id="rh-end" min="0" step="0.1" value="80" /> 秒
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">预览片段单</button>
+            <button type="button" id="rhDownload" class="btn" hidden>下载片段 JSON</button>
+          </div>
+        </div>
+      </form>
+
+      <div id="rehearsalPreview" hidden>
+        <div id="rhMeta" class="hint" style="margin-bottom:10px"></div>
+        <div class="panel-head">
+          <h2 style="font-size:15px">片段时间轴（0 = 原演出第 <span id="rhBase"></span> 秒）</h2>
+          <div class="legend">
+            <span class="lg lg-ok"></span> 正常
+            <span class="lg lg-bad"></span> 冲突时段
+          </div>
+        </div>
+        <div id="rhTimeline" style="margin:8px 0 14px"></div>
+        <div id="rhConflictPanel" hidden>
+          <h2 style="font-size:15px">⚠️ 片段内通道冲突（左闭右开）</h2>
+          <ul id="rhConflictList" class="conflict-list"></ul>
+        </div>
+        <div class="table-wrap">
+          <table id="rhTable">
+            <thead>
+              <tr>
+                <th>#</th><th>名称</th><th>独占通道</th><th>持续(s)</th><th>开始方式</th><th>片段开始</th><th>片段结束</th><th>说明</th>
+              </tr>
+            </thead>
+            <tbody id="rhTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2 id="formTitle">➕ 新增提示</h2>
       <form id="cueForm" class="cue-form">
         <input type="hidden" id="f-id" />

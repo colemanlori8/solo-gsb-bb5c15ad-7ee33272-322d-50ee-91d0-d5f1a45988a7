@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { JsonStore } = require('./store');
 const { evaluate, validateCueBody } = require('./scheduler');
+const { parseWindow, buildRehearsal } = require('./rehearsal');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, '..', 'data', 'cues.json');
@@ -116,6 +117,23 @@ app.delete('/api/cues/:id', (req, res) => {
   // 删除后全部后继（链路上的相对提示）时间会随下次 evaluate 自动重算
   store.persist();
   res.json({ ok: true, removedId: removed.id, ...snapshot() });
+});
+
+// 片段排练单：按时间窗 [start, end) 截取并平移到 0，只读，不改动原提示单
+app.post('/api/rehearsal', (req, res) => {
+  let window;
+  try {
+    window = parseWindow((req.body || {}).window);
+  } catch (e) {
+    return fail(res, e.status || 400, e.message, { errors: e.errors || [e.message] });
+  }
+
+  try {
+    const result = buildRehearsal(store.cues, window);
+    res.json(result);
+  } catch (e) {
+    return fail(res, e.status || 400, e.message, { errors: e.errors || [e.message] });
+  }
 });
 
 app.use((err, req, res, next) => {

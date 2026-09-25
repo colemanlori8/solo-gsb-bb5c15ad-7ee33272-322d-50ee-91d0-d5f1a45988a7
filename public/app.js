@@ -49,6 +49,10 @@ async function api(method, url, body) {
 async function reload(notice) {
   const data = await api('GET', '/api/cues');
   state = data;
+  // 源数据变化后，旧的片段预览可能已过时，先收起
+  rehearsal = null;
+  $('#rehearsalPreview').hidden = true;
+  $('#rhDownload').hidden = true;
   render();
   if (notice) showBanner(notice, 'ok');
 }
@@ -128,16 +132,15 @@ function niceStep(span) {
   return mult * pow;
 }
 
-function renderTimeline(conflictIds, schedMap) {
-  const root = $('#timeline');
+function renderTimelineInto(root, { cues, conflicts, schedMap, emptyText, onBlockClick, showUnresolved }) {
   root.innerHTML = '';
 
-  const good = state.cues
+  const good = cues
     .map((c) => ({ c, t: schedMap.get(c.id) }))
     .filter((x) => x.t && x.t.start !== null);
 
   if (!good.length) {
-    root.append(el('div', 'tl-empty', '暂无可绘制的提示（新增一条，或先解决引用/循环问题）'));
+    root.append(el('div', 'tl-empty', emptyText || '暂无可绘制的提示'));
     return;
   }
 
@@ -146,14 +149,19 @@ function renderTimeline(conflictIds, schedMap) {
   const pct = (sec) => `${(sec / span) * 100}%`;
   const step = niceStep(span);
 
+  const conflictIds = new Set();
+  for (const cf of conflicts) {
+    cf.cueIds.forEach((id) => conflictIds.add(id));
+  }
+
   // 按通道分组
   const channels = new Map();
-  for (const c of state.cues) {
+  for (const c of cues) {
     if (!channels.has(c.channel)) channels.set(c.channel, []);
     channels.get(c.channel).push(c);
   }
 
-  for (const [channel, cues] of [...channels].sort((a, b) => a[0].localeCompare(b[0]))) {
+  for (const [channel, channelCues] of [...channels].sort((a, b) => a[0].localeCompare(b[0]))) {
     const wrapEl = el('div', 'tl-channel');
     wrapEl.append(el('div', 'tl-channel-name', `🔌 ${channel}`));
 
@@ -170,7 +178,7 @@ function renderTimeline(conflictIds, schedMap) {
     }
 
     // 冲突红色覆盖层（先放，块在其上）
-    for (const cf of state.conflicts) {
+    for (const cf of conflicts) {
       if (cf.channel !== channel) continue;
       const ov = el('div', 'tl-overlap');
       ov.style.left = pct(cf.start);
@@ -180,7 +188,7 @@ function renderTimeline(conflictIds, schedMap) {
     }
 
     // 提示块
-    for (const c of cues) {
+    for (const c of channelCues) {
       const t = schedMap.get(c.id);
       if (!t || t.start === null) continue;
       const b = el('div', 'tl-block' + (conflictIds.has(c.id) ? ' has-conflict' : ''));
@@ -188,26 +196,28 @@ function renderTimeline(conflictIds, schedMap) {
       b.style.width = pct(Math.max(t.end - t.start, 0.0001));
       b.textContent = c.name;
       b.title = `${c.name}\n${fmtNum(t.start)}s → ${fmtNum(t.end)}s（持续 ${fmtNum(c.duration)}s）`;
-      b.addEventListener('click', () => startEdit(c.id));
+      if (onBlockClick) b.addEventListener('click', () => onBlockClick(c.id));
       track.append(b);
     }
 
     wrapEl.append(track);
 
     // 该通道下时间未定的提示（引用缺失 / 在环上）
-    const unresolved = cues.filter((c) => {
-      const t = schedMap.get(c.id);
-      return !t || t.start === null;
-    });
-    if (unresolved.length) {
-      const urow = el('div', 'tl-unresolved');
-      for (const c of unresolved) {
-        const pill = el('button', 'unk-pill', `⏳ ${c.name}（时间未定）`);
-        pill.type = 'button';
-        pill.addEventListener('click', () => startEdit(c.id));
-        urow.append(pill);
+    if (showUnresolved) {
+      const unresolved = channelCues.filter((c) => {
+        const t = schedMap.get(c.id);
+        return !t || t.start === null;
+      });
+      if (unresolved.length) {
+        const urow = el('div', 'tl-unresolved');
+        for (const c of unresolved) {
+          const pill = el('button', 'unk-pill', `⏳ ${c.name}（时间未定）`);
+          pill.type = 'button';
+          pill.addEventListener('click', () => onBlockClick(c.id));
+          urow.append(pill);
+        }
+        wrapEl.append(urow);
       }
-      wrapEl.append(urow);
     }
 
     root.append(wrapEl);
@@ -222,6 +232,8 @@ function renderTimeline(conflictIds, schedMap) {
     scale.append(lab);
   }
   root.append(scale);
+
+  return conflictIds;
 }
 
 // ---------------- 渲染：表格 ----------------
@@ -288,7 +300,14 @@ function render() {
   const conflictIds = new Set();
   renderConflicts(conflictIds);
   renderErrors();
-  renderTimeline(conflictIds, schedMap);
+  renderTimelineInto($('#timeline'), {
+    cues: state.cues,
+    conflicts: state.conflicts,
+    schedMap,
+    emptyText: '暂无可绘制的提示（新增一条，或先解决引用/循环问题）',
+    onBlockClick: startEdit,
+    showUnresolved: true,
+  });
   renderTable(conflictIds);
   renderAfterOptions();
   updateFormMode();
@@ -411,6 +430,139 @@ async function removeCue(c) {
   }
 }
 
+// ---------------- 片段排练单 ----------------
+let rehearsal = null; // 最近一次预览结果（用于下载）
+
+function rhCueName(id, cues) {
+  const c = cues.find((x) => x.id === id);
+  return c ? c.name : `（${id}）`;
+}
+
+function rhStartDesc(c) {
+  if (c.startType === 'fixed') return `固定第 ${fmtNum(c.fixedAt)}s`;
+  return `「${rhCueName(c.afterCueId, rehearsal.cues)}」结束 +${fmtNum(c.delayAfter)}s`;
+}
+
+function renderRehearsal(data) {
+  rehearsal = data;
+
+  const preview = $('#rehearsalPreview');
+  preview.hidden = false;
+
+  const adjusted = new Map(data.adjustments.map((a) => [a.id, a]));
+
+  $('#rhBase').textContent = fmtNum(data.window.start);
+  $('#rhMeta').textContent =
+    `窗口 [${fmtNum(data.window.start)}, ${fmtNum(data.window.end)})（左闭右开），` +
+    `片段时长 ${fmtNum(data.window.end - data.window.start)}s，` +
+    `入选 ${data.cues.length} 条提示；时间轴整体平移 ${fmtNum(data.window.start)}s。`;
+
+  const schedMap = new Map(data.schedule.map((s) => [s.id, s]));
+  const rhConflictIds = renderTimelineInto($('#rhTimeline'), {
+    cues: data.cues,
+    conflicts: data.conflicts,
+    schedMap,
+    emptyText: '该窗口内没有与时间窗有正长度交集的提示',
+    onBlockClick: null,
+    showUnresolved: false,
+  });
+
+  // 片段内冲突（按左闭右开计算）
+  const cfPanel = $('#rhConflictPanel');
+  const cfList = $('#rhConflictList');
+  cfList.innerHTML = '';
+  if (data.conflicts.length) {
+    cfPanel.hidden = false;
+    for (const cf of data.conflicts) {
+      const [a, b] = cf.cueIds;
+      const li = el('li');
+      li.append(el('span', 'tag', cf.channel));
+      li.append(document.createTextNode(
+        `「${rhCueName(a, data.cues)}」与「${rhCueName(b, data.cues)}」在片段 ${fmtNum(cf.start)}s – ${fmtNum(cf.end)}s 重叠（左闭右开）`
+      ));
+      cfList.append(li);
+    }
+  } else {
+    cfPanel.hidden = true;
+  }
+
+  // 片段提示表
+  const tbody = $('#rhTbody');
+  tbody.innerHTML = '';
+  data.cues.forEach((c, i) => {
+    const t = schedMap.get(c.id);
+    const tr = el('tr');
+    if (rhConflictIds.has(c.id)) tr.classList.add('row-conflict');
+    tr.append(el('td', 'num', String(i + 1)));
+    tr.append(el('td', 'name-cell', c.name));
+    tr.append(el('td', null, c.channel));
+    tr.append(el('td', 'num', fmtNum(c.duration)));
+    tr.append(el('td', null, rhStartDesc(c)));
+    tr.append(el('td', 'num', t ? fmtNum(t.start) : '—'));
+    tr.append(el('td', 'num', t ? fmtNum(t.end) : '—'));
+
+    const noteTd = el('td');
+    const adj = adjusted.get(c.id);
+    if (adj) {
+      const reason = adj.reason === 'cross-left' ? '提示跨左边界，改为固定开始' : '前置未入选片段，改为固定开始';
+      noteTd.append(el('span', 'pill unknown', reason));
+    } else {
+      noteTd.append(el('span', 'rel-muted', c.startType === 'after' ? '保留相对前置' : '—'));
+    }
+    tr.append(noteTd);
+    tbody.append(tr);
+  });
+
+  $('#rhDownload').hidden = false;
+}
+
+async function submitRehearsal(e) {
+  e.preventDefault();
+  const body = {
+    window: {
+      start: $('#rh-start').value,
+      end: $('#rh-end').value,
+    },
+  };
+  try {
+    const data = await api('POST', '/api/rehearsal', body);
+    renderRehearsal(data);
+    showBanner(`已生成片段排练单预览（${data.cues.length} 条提示，原提示单未改动）`, 'ok');
+  } catch (err) {
+    $('#rehearsalPreview').hidden = true;
+    $('#rhDownload').hidden = true;
+    rehearsal = null;
+    showBanner(err.errors.join('\n') || err.message, 'err');
+    const b = $('#banner');
+    b.innerHTML = '';
+    b.append(el('strong', null, '无法生成片段排练单：'));
+    const ul = el('ul');
+    ul.style.margin = '6px 0 0';
+    ul.style.paddingLeft = '18px';
+    for (const m of err.errors) ul.append(el('li', null, m));
+    b.append(ul);
+  }
+}
+
+function downloadRehearsal() {
+  if (!rehearsal) return;
+  // 只落盘可独立使用的提示单结构；重算时刻与冲突可由该文件再次重算得到
+  const payload = {
+    kind: 'rehearsal-cue-sheet',
+    sourceWindow: rehearsal.window,
+    cues: rehearsal.cues,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `rehearsal_${fmtNum(rehearsal.window.start)}-${fmtNum(rehearsal.window.end)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ---------------- 初始化 ----------------
 document.querySelectorAll('input[name="startType"]').forEach((r) =>
   r.addEventListener('change', syncStartBoxes)
@@ -419,4 +571,6 @@ $('#cueForm').addEventListener('submit', submitForm);
 $('#cancelEdit').addEventListener('click', () => resetForm());
 
 syncStartBoxes();
+$('#rehearsalForm').addEventListener('submit', submitRehearsal);
+$('#rhDownload').addEventListener('click', downloadRehearsal);
 reload().catch((err) => showBanner(`加载失败：${err.message}`, 'err', true));
